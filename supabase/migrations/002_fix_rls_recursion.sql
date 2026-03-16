@@ -39,8 +39,13 @@ CREATE POLICY "household_members_delete_owner"
   ON public.household_members FOR DELETE
   USING (public.is_household_owner(household_id));
 
--- 4. Также обновляем households SELECT через ту же функцию (для консистентности)
+-- 4. Обновляем households SELECT: owner_id OR member
+-- Важно: owner_id нужен чтобы .select() после INSERT работал
+-- (пользователь ещё не добавлен в household_members в этот момент)
 DROP POLICY IF EXISTS "households_select_members" ON public.households;
 CREATE POLICY "households_select_members"
   ON public.households FOR SELECT
-  USING (id IN (SELECT public.get_my_household_ids()));
+  USING (
+    owner_id = auth.uid()
+    OR id IN (SELECT public.get_my_household_ids())
+  );
