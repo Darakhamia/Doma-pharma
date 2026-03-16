@@ -20,14 +20,14 @@ export function BottomNav({ householdId }: BottomNavProps) {
       active: pathname === '/app' || (pathname.startsWith('/app/') && !pathname.includes('/add') && !pathname.includes('/assistant')),
     },
     {
-      href: householdId ? `/app/${householdId}/add` : '/app',
+      href: householdId ? `/app/${householdId}/add` : '/app/new',
       icon: Plus,
       label: 'Добавить',
       active: pathname.includes('/add'),
       isPrimary: true,
     },
     {
-      href: householdId ? `/app/${householdId}/assistant` : '/app',
+      href: householdId ? `/app/${householdId}/assistant` : '/app/assistant',
       icon: MessageCircle,
       label: 'Ассистент',
       active: pathname.includes('/assistant'),
@@ -41,8 +41,8 @@ export function BottomNav({ householdId }: BottomNavProps) {
   ]
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-100 pb-safe z-50">
-      <div className="max-w-lg mx-auto flex items-center justify-around px-2 pt-2 pb-1">
+    <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-100 z-50" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
+      <div className="max-w-lg mx-auto flex items-center justify-around px-2 pt-2 pb-2">
         {items.map((item) => {
           const Icon = item.icon
           return (

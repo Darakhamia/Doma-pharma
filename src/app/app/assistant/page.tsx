@@ -1,35 +1,54 @@
 'use client'
 
 import { useEffect, useState, useRef } from 'react'
-import { useParams } from 'next/navigation'
-import { Send, Bot, User, AlertCircle } from 'lucide-react'
+import { Send, Bot, User, AlertCircle, ChevronDown } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { BottomNav } from '@/components/layout/BottomNav'
-import { PageHeader } from '@/components/layout/PageHeader'
+import { Household } from '@/lib/supabase/types'
 
 interface Message {
   role: 'user' | 'assistant'
   content: string
 }
 
-export default function AssistantPage() {
-  const params = useParams()
-  const householdId = params.householdId as string
+export default function GeneralAssistantPage() {
   const supabase = createClient()
-
   const [messages, setMessages] = useState<Message[]>([
     {
       role: 'assistant',
-      content: 'Привет! Я помощник вашей аптечки 👋\n\nРасскажите, что вас беспокоит, и я постараюсь помочь найти подходящее средство из вашей аптечки.',
+      content: 'Привет! Я помощник вашей аптечки 👋\n\nОпишите симптомы — подберу что-нибудь из аптечки или посоветую что купить.',
     },
   ])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
+  const [households, setHouseholds] = useState<Household[]>([])
+  const [selectedHousehold, setSelectedHousehold] = useState<string>('')
+  const [showPicker, setShowPicker] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
+
+  useEffect(() => {
+    loadHouseholds()
+  }, [])
+
+  async function loadHouseholds() {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
+
+    const { data: members } = await supabase
+      .from('household_members')
+      .select('households(*)')
+      .eq('user_id', user.id)
+
+    if (members) {
+      const hs = members.map(m => m.households as unknown as Household).filter(Boolean)
+      setHouseholds(hs)
+      if (hs.length > 0) setSelectedHousehold(hs[0].id)
+    }
+  }
 
   async function sendMessage(e: React.FormEvent) {
     e.preventDefault()
@@ -46,7 +65,7 @@ export default function AssistantPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           messages: [...messages, { role: 'user', content: userMsg }],
-          householdId,
+          householdId: selectedHousehold || null,
         }),
       })
 
@@ -62,22 +81,53 @@ export default function AssistantPage() {
     setLoading(false)
   }
 
+  const selectedH = households.find(h => h.id === selectedHousehold)
+
   return (
     <div className="flex flex-col bg-gray-50" style={{ height: '100dvh', paddingBottom: '64px' }}>
-      <PageHeader
-        title="AI-ассистент"
-        subtitle="Помощник по лекарствам"
-        backHref={`/app/${householdId}`}
-      />
+      {/* Header */}
+      <div className="bg-white border-b border-gray-100 px-4 pt-12 pb-3 flex-shrink-0">
+        <h1 className="text-xl font-bold text-gray-900">AI-ассистент</h1>
+
+        {/* Household picker */}
+        {households.length > 0 && (
+          <div className="mt-2 relative">
+            <button
+              onClick={() => setShowPicker(!showPicker)}
+              className="flex items-center gap-2 text-sm text-gray-600 bg-gray-50 px-3 py-1.5 rounded-xl border border-gray-200"
+            >
+              <span>{selectedH?.icon || '💊'}</span>
+              <span>{selectedH?.name || 'Выбрать аптечку'}</span>
+              <ChevronDown size={14} className={`transition-transform ${showPicker ? 'rotate-180' : ''}`} />
+            </button>
+            {showPicker && (
+              <div className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg z-10 min-w-48">
+                {households.map(h => (
+                  <button
+                    key={h.id}
+                    onClick={() => { setSelectedHousehold(h.id); setShowPicker(false) }}
+                    className={`w-full flex items-center gap-2 px-4 py-2.5 text-sm text-left hover:bg-gray-50 first:rounded-t-xl last:rounded-b-xl ${
+                      selectedHousehold === h.id ? 'text-[#1D9E75] font-medium' : 'text-gray-700'
+                    }`}
+                  >
+                    <span>{h.icon}</span>
+                    <span>{h.name}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
 
       {/* Disclaimer */}
-      <div className="mx-4 mb-3 p-3 bg-amber-50 border border-amber-200 rounded-xl flex items-start gap-2">
+      <div className="mx-4 mt-3 mb-2 p-3 bg-amber-50 border border-amber-200 rounded-xl flex items-start gap-2 flex-shrink-0">
         <AlertCircle size={14} className="text-amber-500 mt-0.5 flex-shrink-0" />
         <p className="text-xs text-amber-700">Ассистент не ставит диагнозы. При серьёзных симптомах обращайтесь к врачу.</p>
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-4 space-y-3">
+      <div className="flex-1 overflow-y-auto px-4 space-y-3 py-1">
         {messages.map((msg, i) => (
           <div
             key={i}
@@ -119,7 +169,7 @@ export default function AssistantPage() {
       </div>
 
       {/* Input */}
-      <div className="px-4 pt-3 pb-2 bg-white border-t border-gray-100">
+      <div className="px-4 pt-3 pb-2 bg-white border-t border-gray-100 flex-shrink-0">
         <form onSubmit={sendMessage} className="flex items-center gap-2">
           <input
             value={input}
@@ -131,14 +181,14 @@ export default function AssistantPage() {
           <button
             type="submit"
             disabled={loading || !input.trim()}
-            className="w-11 h-11 bg-[#1D9E75] rounded-xl flex items-center justify-center text-white disabled:opacity-40 active:bg-[#158a63] transition-colors"
+            className="w-11 h-11 bg-[#1D9E75] rounded-xl flex items-center justify-center text-white disabled:opacity-40 active:bg-[#158a63] transition-colors flex-shrink-0"
           >
             <Send size={18} />
           </button>
         </form>
       </div>
 
-      <BottomNav householdId={householdId} />
+      <BottomNav />
     </div>
   )
 }
