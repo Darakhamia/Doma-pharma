@@ -2,8 +2,9 @@
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
 -- ============================================================
--- PROFILES (extends auth.users)
+-- 1. СОЗДАНИЕ ВСЕХ ТАБЛИЦ
 -- ============================================================
+
 CREATE TABLE IF NOT EXISTS public.profiles (
   id uuid REFERENCES auth.users(id) ON DELETE CASCADE PRIMARY KEY,
   name text,
@@ -14,43 +15,6 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   created_at timestamptz DEFAULT now()
 );
 
-ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "Users can view own profile"
-  ON public.profiles FOR SELECT
-  USING (auth.uid() = id);
-
-CREATE POLICY "Users can update own profile"
-  ON public.profiles FOR UPDATE
-  USING (auth.uid() = id);
-
-CREATE POLICY "Users can insert own profile"
-  ON public.profiles FOR INSERT
-  WITH CHECK (auth.uid() = id);
-
--- Auto-create profile on user signup
-CREATE OR REPLACE FUNCTION public.handle_new_user()
-RETURNS trigger AS $$
-BEGIN
-  INSERT INTO public.profiles (id, name, avatar_url)
-  VALUES (
-    new.id,
-    new.raw_user_meta_data->>'name',
-    new.raw_user_meta_data->>'avatar_url'
-  )
-  ON CONFLICT (id) DO NOTHING;
-  RETURN new;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
-DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
-CREATE TRIGGER on_auth_user_created
-  AFTER INSERT ON auth.users
-  FOR EACH ROW EXECUTE PROCEDURE public.handle_new_user();
-
--- ============================================================
--- HOUSEHOLDS
--- ============================================================
 CREATE TABLE IF NOT EXISTS public.households (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   name text NOT NULL,
@@ -59,32 +23,6 @@ CREATE TABLE IF NOT EXISTS public.households (
   created_at timestamptz DEFAULT now()
 );
 
-ALTER TABLE public.households ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "Members can view their households"
-  ON public.households FOR SELECT
-  USING (
-    id IN (
-      SELECT household_id FROM public.household_members
-      WHERE user_id = auth.uid()
-    )
-  );
-
-CREATE POLICY "Owners can update their households"
-  ON public.households FOR UPDATE
-  USING (owner_id = auth.uid());
-
-CREATE POLICY "Authenticated users can create households"
-  ON public.households FOR INSERT
-  WITH CHECK (auth.uid() IS NOT NULL);
-
-CREATE POLICY "Owners can delete their households"
-  ON public.households FOR DELETE
-  USING (owner_id = auth.uid());
-
--- ============================================================
--- HOUSEHOLD MEMBERS
--- ============================================================
 CREATE TABLE IF NOT EXISTS public.household_members (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   household_id uuid REFERENCES public.households(id) ON DELETE CASCADE,
@@ -94,37 +32,6 @@ CREATE TABLE IF NOT EXISTS public.household_members (
   UNIQUE(household_id, user_id)
 );
 
-ALTER TABLE public.household_members ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "Members can view membership in their households"
-  ON public.household_members FOR SELECT
-  USING (
-    household_id IN (
-      SELECT household_id FROM public.household_members hm
-      WHERE hm.user_id = auth.uid()
-    )
-  );
-
-CREATE POLICY "Owners can manage members"
-  ON public.household_members FOR ALL
-  USING (
-    household_id IN (
-      SELECT household_id FROM public.household_members hm
-      WHERE hm.user_id = auth.uid() AND hm.role = 'owner'
-    )
-  );
-
-CREATE POLICY "Users can join via invite (insert own membership)"
-  ON public.household_members FOR INSERT
-  WITH CHECK (user_id = auth.uid());
-
-CREATE POLICY "Users can leave (delete own membership)"
-  ON public.household_members FOR DELETE
-  USING (user_id = auth.uid());
-
--- ============================================================
--- INVITES
--- ============================================================
 CREATE TABLE IF NOT EXISTS public.invites (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   household_id uuid REFERENCES public.households(id) ON DELETE CASCADE,
@@ -135,34 +42,6 @@ CREATE TABLE IF NOT EXISTS public.invites (
   used_at timestamptz
 );
 
-ALTER TABLE public.invites ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "Household members can view invites"
-  ON public.invites FOR SELECT
-  USING (
-    household_id IN (
-      SELECT household_id FROM public.household_members
-      WHERE user_id = auth.uid()
-    )
-    OR token IS NOT NULL  -- Anyone can view by token for accept flow
-  );
-
-CREATE POLICY "Owners can create invites"
-  ON public.invites FOR INSERT
-  WITH CHECK (
-    household_id IN (
-      SELECT household_id FROM public.household_members
-      WHERE user_id = auth.uid() AND role = 'owner'
-    )
-  );
-
-CREATE POLICY "Authenticated users can update invite (mark as used)"
-  ON public.invites FOR UPDATE
-  USING (auth.uid() IS NOT NULL);
-
--- ============================================================
--- MEDICINES
--- ============================================================
 CREATE TABLE IF NOT EXISTS public.medicines (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   household_id uuid REFERENCES public.households(id) ON DELETE CASCADE,
@@ -183,53 +62,6 @@ CREATE TABLE IF NOT EXISTS public.medicines (
   updated_at timestamptz DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS medicines_household_id_idx ON public.medicines(household_id);
-CREATE INDEX IF NOT EXISTS medicines_expires_at_idx ON public.medicines(expires_at);
-
-ALTER TABLE public.medicines ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "Household members can view medicines"
-  ON public.medicines FOR SELECT
-  USING (
-    household_id IN (
-      SELECT household_id FROM public.household_members
-      WHERE user_id = auth.uid()
-    )
-  );
-
-CREATE POLICY "Household members can add medicines"
-  ON public.medicines FOR INSERT
-  WITH CHECK (
-    household_id IN (
-      SELECT household_id FROM public.household_members
-      WHERE user_id = auth.uid()
-    )
-  );
-
-CREATE POLICY "Household members can update medicines"
-  ON public.medicines FOR UPDATE
-  USING (
-    household_id IN (
-      SELECT household_id FROM public.household_members
-      WHERE user_id = auth.uid()
-    )
-  );
-
-CREATE POLICY "Household members can delete medicines"
-  ON public.medicines FOR DELETE
-  USING (
-    household_id IN (
-      SELECT household_id FROM public.household_members
-      WHERE user_id = auth.uid()
-    )
-  );
-
--- Enable realtime for medicines
-ALTER PUBLICATION supabase_realtime ADD TABLE public.medicines;
-
--- ============================================================
--- MEDICINE LOG
--- ============================================================
 CREATE TABLE IF NOT EXISTS public.medicine_log (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   medicine_id uuid REFERENCES public.medicines(id) ON DELETE CASCADE,
@@ -241,31 +73,6 @@ CREATE TABLE IF NOT EXISTS public.medicine_log (
   created_at timestamptz DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS medicine_log_medicine_id_idx ON public.medicine_log(medicine_id);
-
-ALTER TABLE public.medicine_log ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "Household members can view medicine log"
-  ON public.medicine_log FOR SELECT
-  USING (
-    household_id IN (
-      SELECT household_id FROM public.household_members
-      WHERE user_id = auth.uid()
-    )
-  );
-
-CREATE POLICY "Household members can insert log entries"
-  ON public.medicine_log FOR INSERT
-  WITH CHECK (
-    household_id IN (
-      SELECT household_id FROM public.household_members
-      WHERE user_id = auth.uid()
-    )
-  );
-
--- ============================================================
--- MEDICINE CATALOG (AI cache)
--- ============================================================
 CREATE TABLE IF NOT EXISTS public.medicine_catalog (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   query text UNIQUE NOT NULL,
@@ -278,12 +85,226 @@ CREATE TABLE IF NOT EXISTS public.medicine_catalog (
   created_at timestamptz DEFAULT now()
 );
 
+-- ============================================================
+-- 2. ИНДЕКСЫ
+-- ============================================================
+
+CREATE INDEX IF NOT EXISTS medicines_household_id_idx ON public.medicines(household_id);
+CREATE INDEX IF NOT EXISTS medicines_expires_at_idx ON public.medicines(expires_at);
+CREATE INDEX IF NOT EXISTS medicine_log_medicine_id_idx ON public.medicine_log(medicine_id);
+CREATE INDEX IF NOT EXISTS household_members_user_id_idx ON public.household_members(user_id);
+CREATE INDEX IF NOT EXISTS household_members_household_id_idx ON public.household_members(household_id);
+
+-- ============================================================
+-- 3. ROW LEVEL SECURITY — включить на всех таблицах
+-- ============================================================
+
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.households ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.household_members ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.invites ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.medicines ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.medicine_log ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.medicine_catalog ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "Anyone can read medicine catalog"
+-- ============================================================
+-- 4. RLS ПОЛИТИКИ — profiles
+-- ============================================================
+
+CREATE POLICY "profiles_select_own"
+  ON public.profiles FOR SELECT
+  USING (auth.uid() = id);
+
+CREATE POLICY "profiles_insert_own"
+  ON public.profiles FOR INSERT
+  WITH CHECK (auth.uid() = id);
+
+CREATE POLICY "profiles_update_own"
+  ON public.profiles FOR UPDATE
+  USING (auth.uid() = id);
+
+-- ============================================================
+-- 5. RLS ПОЛИТИКИ — households
+-- (household_members уже существует на этом этапе)
+-- ============================================================
+
+CREATE POLICY "households_select_members"
+  ON public.households FOR SELECT
+  USING (
+    id IN (
+      SELECT household_id FROM public.household_members
+      WHERE user_id = auth.uid()
+    )
+  );
+
+CREATE POLICY "households_insert_authenticated"
+  ON public.households FOR INSERT
+  WITH CHECK (auth.uid() IS NOT NULL);
+
+CREATE POLICY "households_update_owner"
+  ON public.households FOR UPDATE
+  USING (owner_id = auth.uid());
+
+CREATE POLICY "households_delete_owner"
+  ON public.households FOR DELETE
+  USING (owner_id = auth.uid());
+
+-- ============================================================
+-- 6. RLS ПОЛИТИКИ — household_members
+-- ============================================================
+
+CREATE POLICY "household_members_select"
+  ON public.household_members FOR SELECT
+  USING (
+    household_id IN (
+      SELECT hm.household_id FROM public.household_members hm
+      WHERE hm.user_id = auth.uid()
+    )
+  );
+
+CREATE POLICY "household_members_insert_self"
+  ON public.household_members FOR INSERT
+  WITH CHECK (user_id = auth.uid());
+
+CREATE POLICY "household_members_delete_self"
+  ON public.household_members FOR DELETE
+  USING (user_id = auth.uid());
+
+CREATE POLICY "household_members_delete_owner"
+  ON public.household_members FOR DELETE
+  USING (
+    household_id IN (
+      SELECT hm.household_id FROM public.household_members hm
+      WHERE hm.user_id = auth.uid() AND hm.role = 'owner'
+    )
+  );
+
+-- ============================================================
+-- 7. RLS ПОЛИТИКИ — invites
+-- ============================================================
+
+CREATE POLICY "invites_select"
+  ON public.invites FOR SELECT
+  USING (
+    household_id IN (
+      SELECT household_id FROM public.household_members
+      WHERE user_id = auth.uid()
+    )
+    OR auth.uid() IS NOT NULL
+  );
+
+CREATE POLICY "invites_insert_owner"
+  ON public.invites FOR INSERT
+  WITH CHECK (
+    household_id IN (
+      SELECT household_id FROM public.household_members
+      WHERE user_id = auth.uid() AND role = 'owner'
+    )
+  );
+
+CREATE POLICY "invites_update_authenticated"
+  ON public.invites FOR UPDATE
+  USING (auth.uid() IS NOT NULL);
+
+-- ============================================================
+-- 8. RLS ПОЛИТИКИ — medicines
+-- ============================================================
+
+CREATE POLICY "medicines_select_members"
+  ON public.medicines FOR SELECT
+  USING (
+    household_id IN (
+      SELECT household_id FROM public.household_members
+      WHERE user_id = auth.uid()
+    )
+  );
+
+CREATE POLICY "medicines_insert_members"
+  ON public.medicines FOR INSERT
+  WITH CHECK (
+    household_id IN (
+      SELECT household_id FROM public.household_members
+      WHERE user_id = auth.uid()
+    )
+  );
+
+CREATE POLICY "medicines_update_members"
+  ON public.medicines FOR UPDATE
+  USING (
+    household_id IN (
+      SELECT household_id FROM public.household_members
+      WHERE user_id = auth.uid()
+    )
+  );
+
+CREATE POLICY "medicines_delete_members"
+  ON public.medicines FOR DELETE
+  USING (
+    household_id IN (
+      SELECT household_id FROM public.household_members
+      WHERE user_id = auth.uid()
+    )
+  );
+
+-- ============================================================
+-- 9. RLS ПОЛИТИКИ — medicine_log
+-- ============================================================
+
+CREATE POLICY "medicine_log_select_members"
+  ON public.medicine_log FOR SELECT
+  USING (
+    household_id IN (
+      SELECT household_id FROM public.household_members
+      WHERE user_id = auth.uid()
+    )
+  );
+
+CREATE POLICY "medicine_log_insert_members"
+  ON public.medicine_log FOR INSERT
+  WITH CHECK (
+    household_id IN (
+      SELECT household_id FROM public.household_members
+      WHERE user_id = auth.uid()
+    )
+  );
+
+-- ============================================================
+-- 10. RLS ПОЛИТИКИ — medicine_catalog
+-- ============================================================
+
+CREATE POLICY "medicine_catalog_select_all"
   ON public.medicine_catalog FOR SELECT
   USING (true);
 
-CREATE POLICY "Service role can insert into medicine catalog"
+CREATE POLICY "medicine_catalog_insert_all"
   ON public.medicine_catalog FOR INSERT
   WITH CHECK (true);
+
+-- ============================================================
+-- 11. REALTIME
+-- ============================================================
+
+ALTER PUBLICATION supabase_realtime ADD TABLE public.medicines;
+
+-- ============================================================
+-- 12. ТРИГГЕР — авто-создание профиля при регистрации
+-- ============================================================
+
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS trigger AS $$
+BEGIN
+  INSERT INTO public.profiles (id, name, avatar_url)
+  VALUES (
+    new.id,
+    new.raw_user_meta_data->>'name',
+    new.raw_user_meta_data->>'avatar_url'
+  )
+  ON CONFLICT (id) DO NOTHING;
+  RETURN new;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+CREATE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW EXECUTE PROCEDURE public.handle_new_user();
