@@ -4,15 +4,24 @@ import { createClient } from '@/lib/supabase/server'
 import { formatDateShort } from '@/lib/utils'
 import { Medicine } from '@/lib/supabase/types'
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-})
-
 export async function POST(request: NextRequest) {
   try {
     const { messages, householdId } = await request.json()
 
     const supabase = await createClient()
+
+    // Get user's OpenAI key from profile, fall back to env
+    const { data: { user } } = await supabase.auth.getUser()
+    const { data: profile } = user
+      ? await supabase.from('profiles').select('openai_api_key').eq('id', user.id).single()
+      : { data: null }
+
+    const apiKey = profile?.openai_api_key || process.env.OPENAI_API_KEY
+    if (!apiKey) {
+      return NextResponse.json({ message: 'Добавьте ключ OpenAI в настройках профиля.' })
+    }
+
+    const openai = new OpenAI({ apiKey })
 
     let medicinesList = ''
 

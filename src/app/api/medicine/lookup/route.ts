@@ -2,10 +2,6 @@ import { NextRequest, NextResponse } from 'next/server'
 import OpenAI from 'openai'
 import { createClient } from '@/lib/supabase/server'
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-})
-
 // Search OpenFDA for drug info (US/international drugs)
 async function searchOpenFDA(query: string) {
   try {
@@ -61,6 +57,19 @@ export async function POST(request: NextRequest) {
 
     // Check cache first
     const supabase = await createClient()
+
+    // Get user's OpenAI key from profile, fall back to env
+    const { data: { user } } = await supabase.auth.getUser()
+    const { data: profile } = user
+      ? await supabase.from('profiles').select('openai_api_key').eq('id', user.id).single()
+      : { data: null }
+
+    const apiKey = profile?.openai_api_key || process.env.OPENAI_API_KEY
+    if (!apiKey) {
+      return NextResponse.json({ found: false })
+    }
+
+    const openai = new OpenAI({ apiKey })
     const { data: cached } = await supabase
       .from('medicine_catalog')
       .select('*')

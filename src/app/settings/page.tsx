@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Bell, BellOff, LogOut, User, ChevronRight, Moon } from 'lucide-react'
+import { Bell, BellOff, LogOut, User, ChevronRight, Bot, Eye, EyeOff, CheckCircle } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
@@ -20,6 +20,10 @@ export default function SettingsPage() {
   const [notifGranted, setNotifGranted] = useState(false)
   const [subscribing, setSubscribing] = useState(false)
   const [email, setEmail] = useState('')
+  const [openaiKey, setOpenaiKey] = useState('')
+  const [showKey, setShowKey] = useState(false)
+  const [savingKey, setSavingKey] = useState(false)
+  const [keySaved, setKeySaved] = useState(false)
 
   useEffect(() => {
     setNotifSupported('Notification' in window && 'serviceWorker' in navigator)
@@ -32,13 +36,14 @@ export default function SettingsPage() {
     if (!user) return
     setEmail(user.email || '')
 
-    const { data } = await supabase.from('profiles').select('*').eq('id', user.id).single()
+    const { data } = await supabase.from('profiles').select('*, openai_api_key').eq('id', user.id).single()
     if (data) {
       setProfile({
         name: data.name || '',
         notify_expiry_days: data.notify_expiry_days || 30,
         notify_low_qty: data.notify_low_qty ?? true,
       })
+      setOpenaiKey(data.openai_api_key || '')
     }
     setLoading(false)
   }
@@ -55,6 +60,20 @@ export default function SettingsPage() {
       notify_low_qty: profile.notify_low_qty,
     })
     setSaving(false)
+  }
+
+  async function saveOpenAIKey() {
+    setSavingKey(true)
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
+
+    await supabase.from('profiles').upsert({
+      id: user.id,
+      openai_api_key: openaiKey.trim() || null,
+    })
+    setSavingKey(false)
+    setKeySaved(true)
+    setTimeout(() => setKeySaved(false), 2500)
   }
 
   async function enableNotifications() {
@@ -139,6 +158,45 @@ export default function SettingsPage() {
               Сохранить
             </Button>
           </div>
+        </div>
+
+        {/* OpenAI API Key */}
+        <div className="bg-white rounded-2xl border border-gray-100 p-4 space-y-3">
+          <div className="flex items-center gap-2">
+            <Bot size={18} className="text-gray-400" />
+            <h3 className="font-medium text-gray-900">AI-ассистент</h3>
+          </div>
+          <p className="text-xs text-gray-400">
+            Ключ OpenAI нужен для работы ассистента и автозаполнения лекарств. Хранится только в вашем профиле.
+          </p>
+          <div className="relative">
+            <input
+              type={showKey ? 'text' : 'password'}
+              value={openaiKey}
+              onChange={(e) => setOpenaiKey(e.target.value)}
+              placeholder="sk-..."
+              className="w-full pr-10 pl-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#1D9E75] font-mono"
+            />
+            <button
+              type="button"
+              onClick={() => setShowKey(!showKey)}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400"
+            >
+              {showKey ? <EyeOff size={16} /> : <Eye size={16} />}
+            </button>
+          </div>
+          <Button
+            onClick={saveOpenAIKey}
+            loading={savingKey}
+            variant="outline"
+            fullWidth
+          >
+            {keySaved ? (
+              <span className="flex items-center gap-1.5 text-[#1D9E75]">
+                <CheckCircle size={15} /> Сохранено
+              </span>
+            ) : 'Сохранить ключ'}
+          </Button>
         </div>
 
         {/* Notifications */}
