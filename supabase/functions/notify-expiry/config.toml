@@ -1,0 +1,2 @@
+[functions.notify-expiry]
+verify_jwt = false

@@ -1,0 +1,10 @@
+[project]
+# project_id for production - fill in after creating your Supabase project
+id = "medbag"
+
+[cron]
+# Daily at 9:00 UTC
+[[cron.jobs]]
+name = "notify-expiry"
+schedule = "0 9 * * *"
+function = "notify-expiry"
