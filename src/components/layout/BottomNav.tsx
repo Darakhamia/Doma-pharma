@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Home, Plus, MessageCircle, Settings } from 'lucide-react'
+import { Home, Plus, MessageCircle, Settings, ShoppingCart } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 interface BottomNavProps {
@@ -28,6 +28,12 @@ export function BottomNav({ householdId }: BottomNavProps) {
   ]
 
   const rightItems = [
+    {
+      href: householdId ? `/app/${householdId}/restock` : '/app',
+      icon: ShoppingCart,
+      label: 'Докупить',
+      active: pathname.includes('/restock'),
+    },
     {
       href: '/settings',
       icon: Settings,
