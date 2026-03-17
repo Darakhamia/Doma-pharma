@@ -35,7 +35,9 @@ export async function POST(
   }
 
   const token = generateToken()
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ||
+    request.headers.get('origin') ||
+    `${request.nextUrl.protocol}//${request.headers.get('host')}`
 
   const { error } = await supabase.from('invites').insert({
     household_id: householdId,

@@ -2,8 +2,8 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
-import { useParams } from 'next/navigation'
-import { Search, Filter, AlertTriangle, Users, Plus, X } from 'lucide-react'
+import { useParams, useRouter } from 'next/navigation'
+import { Search, Filter, AlertTriangle, Users, Plus, X, ChevronDown, Check } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { Medicine, Household } from '@/lib/supabase/types'
 import { BottomNav } from '@/components/layout/BottomNav'
@@ -13,8 +13,15 @@ import { getExpiryStatus, getDaysUntilExpiry } from '@/lib/utils'
 type FilterType = 'all' | 'expiring' | 'low' | 'expired'
 type SortType = 'expires' | 'name' | 'category' | 'quantity'
 
+interface HouseholdOption {
+  id: string
+  name: string
+  icon: string
+}
+
 export default function HouseholdPage() {
   const params = useParams()
+  const router = useRouter()
   const householdId = params.householdId as string
   const supabase = createClient()
 
@@ -26,27 +33,37 @@ export default function HouseholdPage() {
   const [sort, setSort] = useState<SortType>('expires')
   const [showFilters, setShowFilters] = useState(false)
   const [isOwner, setIsOwner] = useState(false)
+  const [allHouseholds, setAllHouseholds] = useState<HouseholdOption[]>([])
+  const [showSwitcher, setShowSwitcher] = useState(false)
 
   const loadData = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
 
-    const [{ data: h }, { data: meds }, { data: member }] = await Promise.all([
+    const [{ data: h }, { data: meds }, { data: member }, { data: members }] = await Promise.all([
       supabase.from('households').select('*').eq('id', householdId).single(),
       supabase.from('medicines').select('*').eq('household_id', householdId).order('expires_at', { ascending: true, nullsFirst: false }),
       supabase.from('household_members').select('role').eq('household_id', householdId).eq('user_id', user.id).single(),
+      supabase.from('household_members').select('household_id, households(id, name, icon)').eq('user_id', user.id),
     ])
 
     setHousehold(h)
     setMedicines(meds || [])
     setIsOwner(member?.role === 'owner')
+
+    if (members) {
+      const opts = members
+        .map((m: any) => m.households as HouseholdOption)
+        .filter(Boolean)
+      setAllHouseholds(opts)
+    }
+
     setLoading(false)
   }, [householdId])
 
   useEffect(() => {
     loadData()
 
-    // Realtime subscription
     const channel = supabase
       .channel(`medicines:${householdId}`)
       .on('postgres_changes', {
@@ -127,11 +144,67 @@ export default function HouseholdPage() {
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <span className="text-2xl">{household?.icon}</span>
-            <div>
-              <h1 className="font-bold text-gray-900 text-xl">{household?.name}</h1>
-              <p className="text-xs text-gray-500">{medicines.length} лекарств</p>
+            {/* Household switcher */}
+            <div className="relative">
+              <button
+                onClick={() => setShowSwitcher(!showSwitcher)}
+                className="flex items-center gap-1 group"
+              >
+                <div>
+                  <h1 className="font-bold text-gray-900 text-xl leading-tight">{household?.name}</h1>
+                  <p className="text-xs text-gray-500">{medicines.length} лекарств</p>
+                </div>
+                {allHouseholds.length > 1 && (
+                  <ChevronDown
+                    size={16}
+                    className={`text-gray-400 mt-1 transition-transform ${showSwitcher ? 'rotate-180' : ''}`}
+                  />
+                )}
+              </button>
+
+              {showSwitcher && allHouseholds.length > 1 && (
+                <>
+                  {/* Backdrop */}
+                  <div
+                    className="fixed inset-0 z-40"
+                    onClick={() => setShowSwitcher(false)}
+                  />
+                  {/* Dropdown */}
+                  <div className="absolute top-full left-0 mt-2 w-56 bg-white rounded-2xl shadow-xl border border-gray-100 z-50 overflow-hidden">
+                    {allHouseholds.map((h) => (
+                      <button
+                        key={h.id}
+                        onClick={() => {
+                          setShowSwitcher(false)
+                          if (h.id !== householdId) router.push(`/app/${h.id}`)
+                        }}
+                        className="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition-colors text-left"
+                      >
+                        <span className="text-xl">{h.icon}</span>
+                        <span className="flex-1 text-sm font-medium text-gray-900 truncate">{h.name}</span>
+                        {h.id === householdId && (
+                          <Check size={15} className="text-[#1D9E75] flex-shrink-0" />
+                        )}
+                      </button>
+                    ))}
+                    <div className="border-t border-gray-100">
+                      <Link
+                        href="/app/new"
+                        onClick={() => setShowSwitcher(false)}
+                        className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition-colors"
+                      >
+                        <div className="w-7 h-7 rounded-lg bg-gray-100 flex items-center justify-center">
+                          <Plus size={14} className="text-gray-500" />
+                        </div>
+                        <span className="text-sm text-gray-600">Новая аптечка</span>
+                      </Link>
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
           </div>
+
           <div className="flex items-center gap-2">
             {warnings > 0 && (
               <div className="flex items-center gap-1 bg-orange-100 px-2 py-1 rounded-full">
