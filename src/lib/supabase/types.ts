@@ -129,6 +129,7 @@ export interface Database {
           expires_at: string | null
           barcode: string | null
           notes: string | null
+          photo_url: string | null
           added_by: string | null
           created_at: string
           updated_at: string
@@ -148,6 +149,7 @@ export interface Database {
           expires_at?: string | null
           barcode?: string | null
           notes?: string | null
+          photo_url?: string | null
           added_by?: string | null
           created_at?: string
           updated_at?: string
@@ -167,6 +169,7 @@ export interface Database {
           expires_at?: string | null
           barcode?: string | null
           notes?: string | null
+          photo_url?: string | null
           added_by?: string | null
           created_at?: string
           updated_at?: string

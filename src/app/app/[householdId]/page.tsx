@@ -3,12 +3,12 @@
 import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
-import { Search, Filter, AlertTriangle, Users, Plus, X, ChevronDown, Check } from 'lucide-react'
+import { Search, Filter, AlertTriangle, Users, Plus, X, ChevronDown, Check, History } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { Medicine, Household } from '@/lib/supabase/types'
 import { BottomNav } from '@/components/layout/BottomNav'
 import { MedicineCard } from '@/components/medicines/MedicineCard'
-import { getExpiryStatus, getDaysUntilExpiry } from '@/lib/utils'
+import { getExpiryStatus, getDaysUntilExpiry, CATEGORIES } from '@/lib/utils'
 
 type FilterType = 'all' | 'expiring' | 'low' | 'expired'
 type SortType = 'expires' | 'name' | 'category' | 'quantity'
@@ -35,6 +35,7 @@ export default function HouseholdPage() {
   const [isOwner, setIsOwner] = useState(false)
   const [allHouseholds, setAllHouseholds] = useState<HouseholdOption[]>([])
   const [showSwitcher, setShowSwitcher] = useState(false)
+  const [categoryFilter, setCategoryFilter] = useState<string | null>(null)
 
   const loadData = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser()
@@ -79,6 +80,9 @@ export default function HouseholdPage() {
     return () => { supabase.removeChannel(channel) }
   }, [householdId, loadData])
 
+  // Categories that actually appear in current medicines
+  const usedCategories = [...new Set(medicines.map(m => m.category).filter(Boolean))] as string[]
+
   const filteredMedicines = medicines
     .filter(m => {
       const matchesSearch = !search ||
@@ -87,6 +91,8 @@ export default function HouseholdPage() {
         (m.substance && m.substance.toLowerCase().includes(search.toLowerCase()))
 
       if (!matchesSearch) return false
+
+      if (categoryFilter && m.category !== categoryFilter) return false
 
       switch (filter) {
         case 'expired':
@@ -212,6 +218,9 @@ export default function HouseholdPage() {
                 <span className="text-xs font-medium text-orange-600">{warnings}</span>
               </div>
             )}
+            <Link href={`/app/${householdId}/history`} className="w-9 h-9 bg-gray-100 rounded-xl flex items-center justify-center text-gray-600">
+              <History size={18} />
+            </Link>
             <Link href={`/app/${householdId}/members`} className="w-9 h-9 bg-gray-100 rounded-xl flex items-center justify-center text-gray-600">
               <Users size={18} />
             </Link>
@@ -259,6 +268,25 @@ export default function HouseholdPage() {
             Сортировка
           </button>
         </div>
+
+        {/* Category quick-filter */}
+        {usedCategories.length > 0 && (
+          <div className="flex gap-2 mt-2 overflow-x-auto scrollbar-hide">
+            {usedCategories.map(cat => (
+              <button
+                key={cat}
+                onClick={() => setCategoryFilter(categoryFilter === cat ? null : cat)}
+                className={`flex-shrink-0 px-3 py-1 rounded-full text-xs font-medium transition-colors border ${
+                  categoryFilter === cat
+                    ? 'bg-gray-800 text-white border-gray-800'
+                    : 'bg-white text-gray-600 border-gray-200'
+                }`}
+              >
+                {cat}
+              </button>
+            ))}
+          </div>
+        )}
 
         {/* Sort options */}
         {showFilters && (

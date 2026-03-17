@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next'
 import './globals.css'
+import { OfflineBanner } from '@/components/OfflineBanner'
 
 export const metadata: Metadata = {
   title: 'MedBag — Домашняя аптечка',
@@ -35,7 +36,10 @@ export default function RootLayout({
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="default" />
       </head>
-      <body>{children}</body>
+      <body>
+        <OfflineBanner />
+        {children}
+      </body>
     </html>
   )
 }

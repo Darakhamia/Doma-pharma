@@ -1,8 +1,8 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { Minus, Plus, Trash2, Edit3, Save, X, History, MapPin, Package, Calendar, FileText } from 'lucide-react'
+import { Minus, Plus, Trash2, Edit3, Save, X, History, MapPin, Package, Calendar, FileText, Camera } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { Medicine, MedicineLog } from '@/lib/supabase/types'
 import { Button } from '@/components/ui/Button'
@@ -30,6 +30,9 @@ export default function MedicineDetailPage() {
   const [quantity, setQuantity] = useState(0)
   const [editData, setEditData] = useState<Partial<Medicine>>({})
   const [currentUserId, setCurrentUserId] = useState<string | null>(null)
+  const [newPhoto, setNewPhoto] = useState<File | null>(null)
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null)
+  const photoInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     loadData()
@@ -62,9 +65,7 @@ export default function MedicineDetailPage() {
     if (!medicine) return
     const newQty = Math.max(0, quantity + delta)
     setQuantity(newQty)
-
     const { data: { user } } = await supabase.auth.getUser()
-
     await supabase.from('medicines').update({ quantity: newQty, updated_at: new Date().toISOString() }).eq('id', medId)
     await supabase.from('medicine_log').insert({
       medicine_id: medId,
@@ -77,13 +78,35 @@ export default function MedicineDetailPage() {
     loadData()
   }
 
+  async function uploadPhoto(file: File): Promise<string | null> {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return null
+    const ext = file.name.split('.').pop() || 'jpg'
+    const path = `${user.id}/${medId}.${ext}`
+    const { error } = await supabase.storage.from('medicine-photos').upload(path, file, { upsert: true })
+    if (error) return null
+    const { data: { publicUrl } } = supabase.storage.from('medicine-photos').getPublicUrl(path)
+    return publicUrl
+  }
+
   async function handleSave() {
     if (!medicine) return
     setSaving(true)
+
+    let photoUrl = editData.photo_url
+    if (newPhoto) {
+      const uploaded = await uploadPhoto(newPhoto)
+      if (uploaded) photoUrl = uploaded
+    }
+
     await supabase.from('medicines').update({
       ...editData,
+      photo_url: photoUrl,
       updated_at: new Date().toISOString(),
     }).eq('id', medId)
+
+    setNewPhoto(null)
+    setPhotoPreview(null)
     setSaving(false)
     setEditing(false)
     loadData()
@@ -100,6 +123,13 @@ export default function MedicineDetailPage() {
     })
     await supabase.from('medicines').delete().eq('id', medId)
     router.push(`/app/${householdId}`)
+  }
+
+  function handlePhotoChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setNewPhoto(file)
+    setPhotoPreview(URL.createObjectURL(file))
   }
 
   const expiryStatus = getExpiryStatus(medicine?.expires_at)
@@ -127,6 +157,7 @@ export default function MedicineDetailPage() {
   const categoryOptions = CATEGORIES.map(c => ({ value: c, label: c }))
   const formOptions = FORMS.map(f => ({ value: f, label: f }))
   const unitOptions = QUANTITY_UNITS.map(u => ({ value: u, label: u }))
+  const currentPhoto = photoPreview || medicine.photo_url
 
   return (
     <div className="min-h-screen bg-gray-50 pb-10">
@@ -137,7 +168,7 @@ export default function MedicineDetailPage() {
           actions={
             editing ? (
               <div className="flex gap-2">
-                <button onClick={() => setEditing(false)} className="w-9 h-9 flex items-center justify-center bg-gray-100 rounded-xl text-gray-600">
+                <button onClick={() => { setEditing(false); setNewPhoto(null); setPhotoPreview(null) }} className="w-9 h-9 flex items-center justify-center bg-gray-100 rounded-xl text-gray-600">
                   <X size={18} />
                 </button>
                 <button onClick={handleSave} className="w-9 h-9 flex items-center justify-center bg-[#1D9E75] rounded-xl text-white">
@@ -158,6 +189,39 @@ export default function MedicineDetailPage() {
         />
 
         <div className="px-4 space-y-4">
+          {/* Photo */}
+          {(currentPhoto || editing) && (
+            <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+              <input ref={photoInputRef} type="file" accept="image/*" capture="environment" onChange={handlePhotoChange} className="hidden" />
+              {currentPhoto ? (
+                <div className="relative">
+                  <img src={currentPhoto} alt={medicine.name} className="w-full h-48 object-cover" />
+                  {editing && (
+                    <button
+                      onClick={() => photoInputRef.current?.click()}
+                      className="absolute bottom-2 right-2 px-3 py-1.5 bg-black/50 rounded-xl text-white text-xs flex items-center gap-1.5"
+                    >
+                      <Camera size={13} /> Изменить фото
+                    </button>
+                  )}
+                </div>
+              ) : editing ? (
+                <button
+                  onClick={() => photoInputRef.current?.click()}
+                  className="w-full flex items-center gap-3 px-4 py-3 text-gray-500"
+                >
+                  <div className="w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center flex-shrink-0">
+                    <Camera size={18} className="text-gray-400" />
+                  </div>
+                  <div className="text-left">
+                    <p className="text-sm font-medium text-gray-700">Добавить фото упаковки</p>
+                    <p className="text-xs text-gray-400">Сфотографировать или выбрать из галереи</p>
+                  </div>
+                </button>
+              ) : null}
+            </div>
+          )}
+
           {editing ? (
             <>
               <div className="bg-white rounded-2xl p-4 border border-gray-100 space-y-4">
