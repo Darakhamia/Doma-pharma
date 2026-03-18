@@ -183,7 +183,8 @@ ${contextHint}
 Если лекарство не найдено или запрос нерелевантен — верни {"found": false}.`
 
     const message = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+      // Use gpt-4o for barcodes (better training data coverage), mini for text search
+      model: barcode ? 'gpt-4o' : 'gpt-4o-mini',
       max_tokens: 300,
       messages: [{ role: 'user', content: prompt }],
       response_format: { type: 'json_object' },

@@ -34,6 +34,7 @@ export default function AddMedicinePage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [searching, setSearching] = useState(false)
   const [aiFound, setAiFound] = useState(false)
+  const [barcodeNotFound, setBarcodeNotFound] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [showScanner, setShowScanner] = useState(false)
@@ -61,9 +62,10 @@ export default function AddMedicinePage() {
     setData(prev => ({ ...prev, [field]: value }))
   }
 
-  async function lookupMedicine(query: string) {
+  async function lookupMedicine(query: string, isBarcode = false) {
     if (query.length < 2) return
     setSearching(true)
+    setBarcodeNotFound(false)
     try {
       const res = await fetch('/api/medicine/lookup', {
         method: 'POST',
@@ -81,7 +83,11 @@ export default function AddMedicinePage() {
           form: result.form || prev.form,
           quantity_unit: result.typical_quantity_unit || prev.quantity_unit,
         }))
+        setSearchQuery(result.name || query)
         setAiFound(true)
+      } else if (isBarcode) {
+        // Barcode scanned but product not found — prompt user to type name
+        setBarcodeNotFound(true)
       }
     } catch {}
     setSearching(false)
@@ -91,6 +97,7 @@ export default function AddMedicinePage() {
     setSearchQuery(query)
     update('name', query)
     setAiFound(false)
+    setBarcodeNotFound(false)
     if (searchTimeout.current) clearTimeout(searchTimeout.current)
     if (query.length < 2) return
     searchTimeout.current = setTimeout(() => lookupMedicine(query), 700)
@@ -99,9 +106,10 @@ export default function AddMedicinePage() {
   function handleBarcodeDetected(barcode: string) {
     setShowScanner(false)
     update('barcode', barcode)
-    setSearchQuery(barcode)
-    update('name', barcode)
-    lookupMedicine(barcode)
+    // Don't set name to barcode number — keep search empty, lookup by barcode
+    setSearchQuery('')
+    update('name', '')
+    lookupMedicine(barcode, true)
   }
 
   function handlePhotoChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -245,11 +253,22 @@ export default function AddMedicinePage() {
               </div>
             )}
 
+            {barcodeNotFound && !searching && (
+              <div className="flex items-start gap-2 px-3 py-2.5 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800 -mt-2">
+                <ScanBarcode size={14} className="flex-shrink-0 mt-0.5" />
+                <span>
+                  Штрихкод отсканирован, но лекарство не найдено в базах.
+                  <br />
+                  <strong>Введите название вручную</strong> — AI заполнит остальное.
+                </span>
+              </div>
+            )}
+
             {data.barcode && (
               <div className="flex items-center gap-2 px-3 py-2 bg-green-50 rounded-xl text-xs text-green-700 -mt-2">
                 <ScanBarcode size={13} />
                 <span>Штрихкод: {data.barcode}</span>
-                <button type="button" onClick={() => update('barcode', '')} className="ml-auto">
+                <button type="button" onClick={() => { update('barcode', ''); setBarcodeNotFound(false) }} className="ml-auto">
                   <X size={13} />
                 </button>
               </div>
